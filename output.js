@@ -1,345 +1,429 @@
-//Mon Jul 28 2025 09:32:43 GMT+0000 (Coordinated Universal Time)
+//Mon Jul 28 2025 09:35:38 GMT+0000 (Coordinated Universal Time)
 //Base:https://github.com/echo094/decode-js
 //Modify:https://github.com/smallfawn/decode_action
-const JD_COOKIE = process.env.JD_COOKIE || "";
-const COUPON_ID = process.env.COUPON_ID || "4P7uUisQVZJR4dJj4wTxgdSwDU9K",
-  EXCHANGE_TIMES = ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "00:00", "1:00", "2:00", "3:00", "4:00", "5:00", "6:00", "7:00", "8:00", "9:00", "20:03"],
-  PRE_START_MS = 3375,
-  POST_END_MS = 1600,
-  REQ_INTERVAL = 1100,
-  MAX_WAIT_MIN = 2;
-const MAX_RETRY = 8,
-  API_URL = "https://api.m.jd.com/api",
-  TIME_API = "https://api.m.jd.com/client.action?functionId=queryMaterialProducts",
+const JD_COOKIE = process.env.JD_COOKIE || "",
+  COUPON_IDS = process.env.COUPON_IDS ? process.env.COUPON_IDS.split("\n") : ["38RbzVgLNjFbTjLjG7BSP1cBovRw", "39CSwRz4FXzdNErVc8sNbQEtDr43", "4P7uUisQVZJR4dJj4wTxgdSwDU9K", "mmoa3PbRSzKSPSrYzFAj1g6rxWa"],
+  _0x249e13 = {
+    "38RbzVgLNjFbTjLjG7BSP1cBovRw": "40元券",
+    "39CSwRz4FXzdNErVc8sNbQEtDr43": "50元券",
+    "4P7uUisQVZJR4dJj4wTxgdSwDU9K": "100元券",
+    mmoa3PbRSzKSPSrYzFAj1g6rxWa: "30元券"
+  };
+const KEY_MINUTES = [0, 10, 20, 30, 40, 50],
+  WINDOW_SIZE = 2,
+  INIT_INTERVAL = 1000,
+  MAX_INTERVAL = 10000,
+  INTERVAL_INCREMENT = 1000,
+  KEY_WINDOW_RANDOM_MIN = 5000,
+  KEY_WINDOW_RANDOM_MAX = 40000,
+  MIN_RANDOM_INTERVAL = 30000,
+  MAX_RANDOM_INTERVAL = 90000,
+  MAX_DAILY_REQUESTS = 1500,
+  SAFE_INTERVAL = 1500,
+  HISTORY_DAYS = 7,
+  STATUS_CHECK_INTERVAL = 10000,
+  COUPON_CHANGE_PROB = 0.3;
+const API_URL = "https://api.m.jd.com/api",
   ORIGIN_HEADER = "https://laputa.jd.com",
-  axios = require("axios");
-let timeOffset = 0;
-const syncTime = async () => {
-    return new Promise(_0x2ebcec => {
-      const _0x1ff607 = Date.now(),
-        _0x3de315 = {
-          "User-Agent": "jdapp"
-        };
-      const _0x38b93a = {
-        headers: _0x3de315,
-        timeout: 1500
-      };
-      axios.get(TIME_API, _0x38b93a).then(_0x569a11 => {
-        const _0x5ae543 = _0x569a11.headers.date || _0x569a11.headers.Date;
-        if (!_0x5ae543) {
-          console.log("⏱️ 未找到Date头");
-          return _0x2ebcec(0);
-        }
-        try {
-          const _0x3a4784 = new Date(_0x5ae543).getTime(),
-            _0x2eed80 = Date.now(),
-            _0x2aa62e = Math.max(1, Math.min((_0x2eed80 - _0x1ff607) / 2, 100));
-          timeOffset = _0x3a4784 + _0x2aa62e - _0x2eed80;
-          console.log("⏱️ 时间校准: " + (timeOffset > 0 ? "+" : "") + timeOffset + "ms");
-          _0x2ebcec(timeOffset);
-        } catch {
-          console.log("⏱️ 时间解析失败");
-          _0x2ebcec(0);
-        }
-      }).catch(_0x3b3aab => {
-        console.log("⏱️ 时间同步失败");
-        _0x2ebcec(0);
-      });
-    });
+  HISTORY_FILE_PATH = "/ql/data/scripts/jd_health_history.json",
+  fs = require("fs"),
+  axios = require("axios"),
+  moment = require("moment"),
+  getCouponDescription = _0xde0c60 => {
+    return _0x249e13[_0xde0c60] || _0xde0c60.substring(0, 6) + "...券";
   },
-  getJDTime = () => Date.now() + timeOffset,
-  formatTime = _0xcc69aa => {
-    const _0x53b649 = new Date(_0xcc69aa);
-    const _0x1b5ed0 = _0x53b649.getMilliseconds().toString().padStart(3, "0");
-    return _0x53b649.getHours().toString().padStart(2, "0") + ":" + _0x53b649.getMinutes().toString().padStart(2, "0") + ":" + _0x53b649.getSeconds().toString().padStart(2, "0") + "." + _0x1b5ed0;
-  },
-  _0x387022 = {
-    encryptAssignmentId: COUPON_ID
-  };
-const REQUEST_URL = API_URL + "?functionId=mb2capp_sports_exchangeHealthCoins" + ("&body=" + encodeURIComponent(JSON.stringify(_0x387022))) + "&appid=laputa&client=m",
-  sendRequest = async () => {
-    const _0xf2303e = getJDTime();
+  loadHistory = () => {
     try {
-      const _0x23e952 = {
-        Cookie: JD_COOKIE,
-        "User-Agent": "jdapp",
-        Origin: ORIGIN_HEADER,
-        Connection: "keep-alive"
-      };
-      const _0x30fabb = {
-        headers: _0x23e952,
-        timeout: 2500
-      };
-      const _0x45126b = await axios.get(REQUEST_URL, _0x30fabb),
-        _0x12b884 = getJDTime() - _0xf2303e;
-      console.log("📤 请求发送 @ " + formatTime(_0xf2303e) + " 延迟: " + _0x12b884 + "ms");
-      const _0x565e89 = {
-        data: _0x45126b.data,
-        latency: _0x12b884,
-        startTime: _0xf2303e
-      };
-      return _0x565e89;
-    } catch (_0x42338f) {
-      const _0x30a849 = getJDTime() - _0xf2303e;
-      console.log("📤 请求发送 @ " + formatTime(_0xf2303e) + " 延迟: " + _0x30a849 + "ms 错误: " + _0x42338f.message);
-      const _0x3f665f = {
-        error: _0x42338f.message,
-        latency: _0x30a849,
-        startTime: _0xf2303e
-      };
-      return _0x3f665f;
+      if (fs.existsSync(HISTORY_FILE_PATH)) {
+        const _0x239912 = fs.readFileSync(HISTORY_FILE_PATH, "utf8");
+        return JSON.parse(_0x239912);
+      }
+    } catch (_0x5b5643) {
+      console.log("读取历史数据失败:", _0x5b5643.message);
     }
-  };
-const processResult = _0x168729 => {
-    accountStatus.retryCount++;
-    accountStatus.lastRequestTime = _0x168729.startTime;
-    if (_0x168729.error) {
-      console.log("⚠️ 请求错误: " + _0x168729.error + " | 延迟: " + _0x168729.latency + "ms");
-      accountStatus.lastError = _0x168729.error;
-      return accountStatus.retryCount < MAX_RETRY;
-    }
-    try {
-      const _0x363dc3 = typeof _0x168729.data === "object" ? _0x168729.data : JSON.parse(_0x168729.data);
-      if (_0x363dc3.success) {
-        accountStatus.status = "success";
-        accountStatus.message = _0x363dc3.msg || "兑换成功";
-        console.log("🎉 兑换成功! " + accountStatus.message + " | 延迟: " + _0x168729.latency + "ms");
-        return false;
-      }
-      if (_0x363dc3.code === "209501") {
-        accountStatus.status = "no_balance";
-        accountStatus.message = _0x363dc3.msg || "步数不足";
-        console.log("⛔ 步数不足: " + accountStatus.message);
-        return false;
-      }
-      if (_0x363dc3.code === "21103") {
-        accountStatus.message = _0x363dc3.msg || "库存不足";
-        console.log("🔄 库存不足，重试中... (" + accountStatus.retryCount + "/" + MAX_RETRY + ")");
-        return accountStatus.retryCount < MAX_RETRY;
-      }
-      accountStatus.message = _0x363dc3.msg || "未知响应: " + _0x363dc3.code;
-      console.log("❓ " + accountStatus.message);
-    } catch (_0x311097) {
-      const _0x100586 = typeof _0x168729.data === "string" ? _0x168729.data : JSON.stringify(_0x168729.data);
-      if (/(成功|抢到了|太棒了|恭喜|已抢到)/i.test(_0x100586)) {
-        accountStatus.status = "success";
-        accountStatus.message = "兑换成功";
-        console.log("🎉 兑换成功! | 延迟: " + _0x168729.latency + "ms");
-        return false;
-      }
-      if (/(步数不足|209501)/i.test(_0x100586)) {
-        accountStatus.status = "no_balance";
-        accountStatus.message = "步数不足";
-        console.log("⛔ 步数不足");
-        return false;
-      }
-      if (/(库存不足|21103)/i.test(_0x100586)) {
-        accountStatus.message = "库存不足";
-        console.log("🔄 库存不足，重试中... (" + accountStatus.retryCount + "/" + MAX_RETRY + ")");
-        return accountStatus.retryCount < MAX_RETRY;
-      }
-      accountStatus.message = "未知响应";
-      console.log("❓ 未知响应: " + _0x100586.substring(0, 50) + "...");
-    }
-    return accountStatus.retryCount < MAX_RETRY;
-  },
-  _0x31402e = {
-    valid: false,
-    status: "pending",
-    retryCount: 0,
-    success: false,
-    lastRequestTime: 0,
-    message: "",
-    lastError: ""
-  };
-let accountStatus = _0x31402e;
-const validateCookie = async () => {
-    try {
-      console.log("🔍 发送Cookie验证请求...");
-      const _0x28fcdd = await sendRequest();
-      if (_0x28fcdd.error) {
-        console.log("❌ Cookie验证失败: " + _0x28fcdd.error);
-        accountStatus.lastError = _0x28fcdd.error;
-        return false;
-      }
-      try {
-        const _0x152b4a = typeof _0x28fcdd.data === "object" ? _0x28fcdd.data : JSON.parse(_0x28fcdd.data),
-          _0x3e4375 = ["209501", "21103"].includes(_0x152b4a.code);
-        accountStatus.message = _0x3e4375 ? "Cookie有效" : "Cookie无效";
-        console.log("🔍 " + accountStatus.message + " (" + (_0x152b4a.code || "无code") + " - " + (_0x152b4a.msg || "无msg") + ")");
-        return _0x3e4375;
-      } catch {
-        const _0x1ffdb4 = typeof _0x28fcdd.data === "string" ? _0x28fcdd.data : JSON.stringify(_0x28fcdd.data),
-          _0x40d443 = /(成功|抢到了|太棒了|恭喜|已抢到)/i.test(_0x1ffdb4);
-        accountStatus.message = _0x40d443 ? "Cookie有效" : "Cookie无效";
-        console.log("🔍 " + accountStatus.message + " (" + _0x1ffdb4.substring(0, 50) + "...)");
-        return _0x40d443;
-      }
-    } catch (_0x339c55) {
-      console.log("❌ Cookie验证异常: " + _0x339c55.message);
-      accountStatus.lastError = _0x339c55.message;
-      return false;
-    }
-  },
-  sendNotification = (_0x3d7c9c, _0x1ecbfb, _0x375b68) => {
-    try {
-      const _0x1f5125 = require("./sendNotify");
-      _0x1f5125.sendNotify(_0x3d7c9c, _0x1ecbfb + "\n" + _0x375b68);
-      console.log("📢 发送通知: " + _0x3d7c9c + " - " + _0x1ecbfb);
-    } catch (_0xe8e252) {
-      console.log("发送通知失败:", _0xe8e252.message);
-    }
-  },
-  sendCookieNotification = _0x327105 => {
-    const _0x2f3014 = Math.floor(_0x327105 / 60000),
-      _0x356000 = Math.round(_0x327105 % 60000 / 1000),
-      _0x10f027 = _0x2f3014 > 0 ? _0x2f3014 + "分" + _0x356000 + "秒" : _0x356000 + "秒";
-    const _0xdc12ad = "验证结果: " + accountStatus.message + "\n" + ("距离兑换: " + _0x10f027);
-    sendNotification("京东健康步数兑换", "Cookie验证完成", _0xdc12ad);
-  },
-  sendResultNotification = () => {
-    let _0xd76049 = "兑换结果",
-      _0xbb2744 = "";
-    let _0x25e89c = "";
-    switch (accountStatus.status) {
-      case "success":
-        _0xd76049 = "✅ 兑换成功";
-        _0xbb2744 = accountStatus.message;
-        _0x25e89c = "请求次数: " + accountStatus.retryCount;
-        break;
-      case "no_balance":
-        _0xd76049 = "⛔ 兑换失败";
-        _0xbb2744 = "步数不足";
-        _0x25e89c = accountStatus.message;
-        break;
-      default:
-        if (accountStatus.retryCount >= MAX_RETRY) {
-          _0xd76049 = "⚠️ 兑换失败";
-          _0xbb2744 = "达到最大尝试次数";
-        } else {
-          _0xd76049 = "🔄 兑换未完成";
-          _0xbb2744 = "未完成兑换";
-        }
-        _0x25e89c = "尝试次数: " + accountStatus.retryCount + "\n";
-        _0x25e89c += "最后状态: " + accountStatus.message + "\n";
-        if (accountStatus.lastError) {
-          _0x25e89c += "最后错误: " + accountStatus.lastError + "\n";
-        }
-    }
-    sendNotification(_0xd76049, _0xbb2744, _0x25e89c);
-  },
-  executeExchange = async _0x5b605a => {
-    const _0xbb10df = _0x5b605a - PRE_START_MS,
-      _0x2fc7f5 = _0x5b605a + POST_END_MS;
-    console.log("🚀 兑换时间窗口: " + formatTime(_0xbb10df) + " 到 " + formatTime(_0x2fc7f5));
-    console.log("⏱️ 总时长: " + (_0x2fc7f5 - _0xbb10df) / 1000 + "秒");
-    try {
-      const _0x3f19f7 = {
-        Cookie: JD_COOKIE,
-        Origin: ORIGIN_HEADER
-      };
-      const _0x16c285 = {
-        headers: _0x3f19f7
-      };
-      await axios.head(API_URL, _0x16c285);
-    } catch (_0x2eb91f) {}
-    const _0x4bb053 = {
-      valid: true,
-      status: "pending",
-      retryCount: 0,
-      success: false,
-      lastRequestTime: 0,
-      message: "",
-      lastError: ""
+    const _0xaeacf0 = {
+      successTimes: [],
+      lastUpdated: 0,
+      dailyStats: {}
     };
-    accountStatus = _0x4bb053;
-    const _0x121f20 = Math.max(0, _0xbb10df - getJDTime());
-    if (_0x121f20 > 0) {
-      console.log("⏳ 等待开始时间: " + _0x121f20 + "ms");
-      await new Promise(_0x5e3852 => setTimeout(_0x5e3852, _0x121f20));
-    }
-    let _0x5c6284 = getJDTime();
-    while (getJDTime() < _0x2fc7f5 && accountStatus.status === "pending" && accountStatus.retryCount < MAX_RETRY) {
-      const _0x12c62c = getJDTime(),
-        _0x4ceb5e = Math.max(0, _0x5c6284 - _0x12c62c);
-      if (_0x4ceb5e > 0) {
-        console.log("⏳ 等待 " + _0x4ceb5e + "ms 满足间隔要求");
-        await new Promise(_0x421388 => setTimeout(_0x421388, _0x4ceb5e));
-      }
-      const _0x2859d9 = getJDTime();
-      _0x5c6284 = _0x2859d9 + REQ_INTERVAL;
-      try {
-        const _0x303265 = await sendRequest();
-        _0x303265.startTime = _0x2859d9;
-        const _0x598acd = processResult(_0x303265);
-        if (!_0x598acd) {
-          break;
-        }
-      } catch (_0x2b1c5d) {
-        console.log("⚠️ 请求异常: " + _0x2b1c5d.message);
-        accountStatus.retryCount++;
-        accountStatus.lastError = _0x2b1c5d.message;
-      }
-    }
-    reportResult();
+    return _0xaeacf0;
   },
-  reportResult = () => {
-    console.log("📊 兑换结果: " + (accountStatus.status || "未完成"));
-    sendResultNotification();
-  },
-  main = async () => {
+  saveHistory = _0x1bf9e7 => {
     try {
-      console.log("🚀 脚本启动 - 京东健康步数兑换");
-      console.log("🔍 验证Cookie有效性...");
-      const _0x4cdfd9 = await validateCookie();
-      if (!_0x4cdfd9) {
-        console.log("❌ Cookie无效，结束脚本");
-        sendNotification("京东健康", "Cookie无效", accountStatus.lastError || "请检查配置");
-        return;
-      }
-      console.log("⏱️ 执行时间校准...");
-      await syncTime();
-      console.log("⏱️ 时间偏移: " + timeOffset + "ms");
-      console.log("🔍 查找兑换时间...");
-      const _0x30aa09 = getJDTime(),
-        _0x4188d1 = new Date(_0x30aa09);
-      let _0x38ce4b = null,
-        _0x2efd2d = Infinity;
-      for (const _0x51391d of EXCHANGE_TIMES) {
-        const [_0x51a52d, _0x9e3a54] = _0x51391d.split(":").map(Number),
-          _0x299c63 = new Date(_0x4188d1);
-        _0x299c63.setHours(_0x51a52d, _0x9e3a54, 0, 0);
-        _0x299c63 < _0x4188d1 && _0x299c63.setDate(_0x299c63.getDate() + 1);
-        const _0xa391c3 = _0x299c63.getTime() - _0x30aa09;
-        if (_0xa391c3 > 0 && _0xa391c3 < _0x2efd2d) {
-          _0x38ce4b = _0x299c63.getTime();
-          _0x2efd2d = _0xa391c3;
-        }
-      }
-      if (!_0x38ce4b) {
-        console.log("⛔ 未找到有效兑换时间");
-        sendNotification("无兑换时间", "请检查时间配置", "");
-        return;
-      }
-      console.log("🎯 目标时间: " + formatTime(_0x38ce4b));
-      console.log("⏳ 距离兑换: " + (_0x38ce4b - _0x30aa09) / 1000 + "秒");
-      const _0x42c021 = _0x38ce4b - _0x30aa09,
-        _0x4e794d = MAX_WAIT_MIN * 60 * 1000;
-      if (_0x42c021 > _0x4e794d) {
-        console.log("⏳ 距离兑换时间还有 " + Math.round(_0x42c021 / 1000) + "秒，提前结束脚本");
-        sendNotification("京东健康步数兑换", "等待下次兑换", "下次兑换时间: " + new Date(_0x38ce4b).toLocaleTimeString());
-        return;
-      }
-      sendCookieNotification(_0x42c021);
-      const _0x4d7971 = Math.max(0, _0x38ce4b - PRE_START_MS - _0x30aa09);
-      if (_0x4d7971 > 0) {
-        console.log("⏳ 等待 " + (_0x4d7971 / 1000).toFixed(1) + "秒...");
-        await new Promise(_0x21505c => setTimeout(_0x21505c, _0x4d7971));
-      }
-      await executeExchange(_0x38ce4b);
-    } catch (_0x4630c1) {
-      console.error("💥 脚本异常: " + _0x4630c1);
-      sendNotification("脚本异常", "执行过程中出错", _0x4630c1.message);
+      fs.writeFileSync(HISTORY_FILE_PATH, JSON.stringify(_0x1bf9e7), "utf8");
+    } catch (_0x4f6630) {
+      console.log("保存历史数据失败:", _0x4f6630.message);
     }
+  },
+  addSuccessTime = _0xdda993 => {
+    const _0x4e4036 = loadHistory(),
+      _0x1fe799 = new Date(),
+      _0x17de98 = moment(_0x1fe799).format("YYYY-MM-DD"),
+      _0x437b73 = getCouponDescription(_0xdda993);
+    if (!_0x4e4036.dailyStats[_0x17de98]) {
+      const _0x2aa86f = {
+        successTimes: [],
+        requestCount: 0
+      };
+      _0x4e4036.dailyStats[_0x17de98] = _0x2aa86f;
+    }
+    const _0x339e22 = _0x1fe799.getHours() + ":" + _0x1fe799.getMinutes().toString().padStart(2, "0");
+    _0x4e4036.dailyStats[_0x17de98].successTimes.push(_0x339e22 + " (" + _0x437b73 + ")");
+    const _0x294185 = {
+      time: _0x339e22,
+      date: _0x17de98,
+      couponId: _0xdda993
+    };
+    _0x4e4036.successTimes.push(_0x294185);
+    _0x4e4036.lastUpdated = Date.now();
+    saveHistory(_0x4e4036);
+    console.log("📝 记录成功时间: " + _0x339e22 + " (" + _0x437b73 + ")");
   };
-main();
+let state = {
+  dailyRequests: 0,
+  lastRequestTime: 0,
+  status: "monitoring",
+  currentInterval: MIN_RANDOM_INTERVAL,
+  inKeyWindow: false,
+  success: false,
+  message: "",
+  lastError: "",
+  intervalMultiplier: 1,
+  lastMinute: -1,
+  mode: "fixed",
+  windowStartTime: 0,
+  currentDate: "",
+  lastNotificationTime: 0,
+  lastStatusCheck: 0,
+  currentCouponId: COUPON_IDS[0] || "",
+  currentCouponDesc: getCouponDescription(COUPON_IDS[0] || "")
+};
+const safeRequest = async () => {
+    const _0x3d74ac = Date.now(),
+      _0xcab026 = _0x3d74ac - state.lastRequestTime;
+    if (_0xcab026 < SAFE_INTERVAL) {
+      const _0x482d52 = SAFE_INTERVAL - _0xcab026;
+      console.log("🛡️ 风控保护: 等待" + formatTime(_0x482d52));
+      await new Promise(_0x5058a7 => setTimeout(_0x5058a7, _0x482d52));
+    }
+    if (state.dailyRequests >= MAX_DAILY_REQUESTS) {
+      console.log("🛑 达到每日请求上限");
+      state.message = "达到每日请求上限";
+      const _0x35d9e8 = {
+        error: "daily_limit"
+      };
+      return _0x35d9e8;
+    }
+    state.dailyRequests++;
+    state.lastRequestTime = _0x3d74ac;
+    const _0x4638f5 = loadHistory(),
+      _0x39288d = moment(_0x3d74ac).format("YYYY-MM-DD");
+    if (_0x4638f5.dailyStats[_0x39288d]) {
+      _0x4638f5.dailyStats[_0x39288d].requestCount++;
+      saveHistory(_0x4638f5);
+    }
+    try {
+      const _0x435bdd = {
+        encryptAssignmentId: state.currentCouponId
+      };
+      const _0x3077ec = await axios.get(API_URL, {
+          params: {
+            functionId: "mb2capp_sports_exchangeHealthCoins",
+            body: JSON.stringify(_0x435bdd),
+            appid: "laputa",
+            client: "m"
+          },
+          headers: {
+            Cookie: JD_COOKIE,
+            "User-Agent": "jdapp",
+            Origin: ORIGIN_HEADER,
+            Connection: "keep-alive"
+          },
+          timeout: 2500
+        }),
+        _0x11fe47 = {
+          data: _0x3077ec.data,
+          couponId: state.currentCouponId,
+          couponDesc: state.currentCouponDesc
+        };
+      return _0x11fe47;
+    } catch (_0x5e6941) {
+      const _0x4c1a81 = {
+        error: _0x5e6941.message,
+        couponId: state.currentCouponId,
+        couponDesc: state.currentCouponDesc
+      };
+      return _0x4c1a81;
+    }
+  },
+  processResult = _0x596915 => {
+    if (_0x596915.error) {
+      if (_0x596915.error === "daily_limit") {
+        state.status = "stopped";
+        return false;
+      }
+      console.log("⚠️ 请求错误: " + _0x596915.error + " | 券: " + _0x596915.couponDesc);
+      state.lastError = _0x596915.error;
+      return true;
+    }
+    try {
+      const _0x5d1c14 = _0x596915.data;
+      if (_0x5d1c14.success) {
+        state.status = "success";
+        state.message = _0x5d1c14.msg || "兑换成功";
+        console.log("🎉 兑换成功! " + state.message + " | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+        addSuccessTime(_0x596915.couponId);
+        return false;
+      }
+      if (_0x5d1c14.code === "209501") {
+        state.message = _0x5d1c14.msg || "步数不足";
+        console.log("⛔ " + state.message + " | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+        return true;
+      }
+      if (_0x5d1c14.code === "21103") {
+        state.message = _0x5d1c14.msg || "库存不足";
+        console.log("🔄 " + state.message + " | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+        return true;
+      }
+      state.message = _0x5d1c14.msg || "未知响应: " + _0x5d1c14.code;
+      console.log("❓ " + state.message + " | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+    } catch (_0x158f14) {
+      if (/(成功|抢到了|太棒了|恭喜|已抢到)/i.test(JSON.stringify(_0x596915.data))) {
+        state.status = "success";
+        state.message = "兑换成功";
+        console.log("🎉 兑换成功! | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+        addSuccessTime(_0x596915.couponId);
+        return false;
+      }
+      if (/(步数不足|209501)/i.test(JSON.stringify(_0x596915.data))) {
+        state.message = "步数不足";
+        console.log("⛔ " + state.message + " | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+        return true;
+      }
+      if (/(库存不足|21103)/i.test(JSON.stringify(_0x596915.data))) {
+        state.message = "库存不足";
+        console.log("🔄 " + state.message + " | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+        return true;
+      }
+      state.message = "未知响应";
+      console.log("❓ " + state.message + ": " + JSON.stringify(_0x596915.data).substring(0, 50) + "... | 券: " + _0x596915.couponDesc + " | 请求次数: " + state.dailyRequests);
+    }
+    return true;
+  },
+  isInKeyWindow = () => {
+    const _0x3f3037 = new Date(),
+      _0x3e645f = _0x3f3037.getMinutes();
+    for (const _0x1eb322 of KEY_MINUTES) {
+      if (Math.abs(_0x3e645f - _0x1eb322) <= WINDOW_SIZE) {
+        return true;
+      }
+    }
+    return false;
+  },
+  updateMonitoringState = () => {
+    const _0x1db773 = new Date();
+    const _0x5723b2 = _0x1db773.getMinutes();
+    if (_0x5723b2 === state.lastMinute) {
+      return;
+    }
+    state.lastMinute = _0x5723b2;
+    const _0x14813f = isInKeyWindow();
+    if (_0x14813f && !state.inKeyWindow) {
+      console.log("🚀 进入关键时间窗口 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+      state.inKeyWindow = true;
+      state.windowStartTime = Date.now();
+      state.currentInterval = INIT_INTERVAL;
+      state.intervalMultiplier = 1;
+      state.mode = "fixed";
+      sendNotification("🚀 监控窗口开始", "兑换监控已启动", "开始时间: " + formatTime(Date.now()) + "\n券: " + state.currentCouponDesc + "\n请求次数: " + state.dailyRequests);
+    } else {
+      !_0x14813f && state.inKeyWindow && (console.log("🐢 离开关键时间窗口 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests), state.inKeyWindow = false, state.mode = "random", state.currentInterval = generateRandomInterval(MIN_RANDOM_INTERVAL, MAX_RANDOM_INTERVAL));
+    }
+  },
+  getRandomCouponId = () => {
+    const _0x314dd0 = Math.floor(Math.random() * COUPON_IDS.length);
+    return COUPON_IDS[_0x314dd0];
+  },
+  updateCouponId = () => {
+    if (COUPON_IDS.length <= 1) {
+      return;
+    }
+    const _0x2e50b9 = state.inKeyWindow ? COUPON_CHANGE_PROB : 0.5;
+    if (Math.random() < _0x2e50b9) {
+      const _0x2e5c8a = getRandomCouponId();
+      if (_0x2e5c8a !== state.currentCouponId) {
+        const _0x19f438 = getCouponDescription(_0x2e5c8a);
+        console.log("🔄 更换券: " + state.currentCouponDesc + " -> " + _0x19f438 + " | 请求次数: " + state.dailyRequests);
+        state.currentCouponId = _0x2e5c8a;
+        state.currentCouponDesc = _0x19f438;
+      }
+    }
+  },
+  executeDeceleratingRequest = async () => {
+    while (state.inKeyWindow && state.mode === "fixed") {
+      try {
+        updateCouponId();
+        const _0x2c3a92 = await safeRequest(),
+          _0x377ce7 = processResult(_0x2c3a92);
+        if (!_0x377ce7) {
+          state.status === "success" && sendNotification("✅ 兑换成功", state.message, "券: " + _0x2c3a92.couponDesc + "\n请求次数: " + state.dailyRequests);
+          state.status = "monitoring";
+          state.success = false;
+          state.message = "";
+          return;
+        }
+        const _0xf06a75 = Math.min(INIT_INTERVAL + state.intervalMultiplier * INTERVAL_INCREMENT, MAX_INTERVAL);
+        console.log("🐢 减速请求: 间隔增加至 " + formatTime(_0xf06a75) + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+        state.currentInterval = _0xf06a75;
+        state.intervalMultiplier++;
+        if (_0xf06a75 >= MAX_INTERVAL) {
+          console.log("🔄 切换到随机模式 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+          state.mode = "random";
+          state.currentInterval = generateRandomInterval(KEY_WINDOW_RANDOM_MIN, KEY_WINDOW_RANDOM_MAX);
+          return;
+        }
+        await waitWithInterrupt(state.currentInterval);
+      } catch (_0x1a4d2d) {
+        console.log("⚠️ 请求异常: " + _0x1a4d2d.message + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+        state.lastError = _0x1a4d2d.message;
+        sendNotification("⚠️ 请求异常", _0x1a4d2d.message, "请查看日志\n券: " + state.currentCouponDesc + "\n请求次数: " + state.dailyRequests);
+      }
+    }
+  },
+  waitWithInterrupt = async _0x2fbb32 => {
+    const _0xe1e485 = Date.now(),
+      _0x494dfc = _0xe1e485 + _0x2fbb32;
+    console.log("⏳ 等待 " + formatTime(_0x2fbb32) + "... | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+    while (Date.now() < _0x494dfc) {
+      const _0x59e34d = _0x494dfc - Date.now(),
+        _0x17a72b = Math.min(_0x59e34d, STATUS_CHECK_INTERVAL);
+      await new Promise(_0x1d9b4c => setTimeout(_0x1d9b4c, _0x17a72b));
+      updateMonitoringState();
+      if (state.inKeyWindow && state.mode === "fixed") {
+        console.log("🚨 中断等待，进入关键窗口 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+        return;
+      }
+    }
+  },
+  formatTime = _0x504609 => {
+    if (_0x504609 < 1000) {
+      return _0x504609 + "ms";
+    }
+    const _0x25e725 = _0x504609 / 1000;
+    if (_0x25e725 < 60) {
+      return _0x25e725.toFixed(1) + "秒";
+    }
+    const _0x2fe72a = _0x25e725 / 60;
+    if (_0x2fe72a < 60) {
+      return _0x2fe72a.toFixed(1) + "分钟";
+    }
+    const _0x3e5f1a = _0x2fe72a / 60;
+    return _0x3e5f1a.toFixed(1) + "小时";
+  },
+  sendNotification = (_0x36c11f, _0x19bb38, _0x220757) => {
+    const _0x557d2c = Date.now();
+    if (_0x557d2c - state.lastNotificationTime < 60000) {
+      console.log("⏳ 跳过通知: " + _0x36c11f + " - " + _0x19bb38 + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+      return;
+    }
+    try {
+      require("./sendNotify").sendNotify(_0x36c11f, _0x19bb38 + "\n" + _0x220757);
+    } catch (_0x63d8bb) {
+      console.log("发送通知失败:", _0x63d8bb.message);
+    }
+    state.lastNotificationTime = _0x557d2c;
+    console.log("📢 发送通知: " + _0x36c11f + " - " + _0x19bb38 + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+  },
+  generateRandomInterval = (_0x52e544, _0xc7cbb0) => {
+    const _0x3fe583 = Math.floor(Math.random() * (_0xc7cbb0 - _0x52e544 + 1)) + _0x52e544;
+    console.log("🎲 随机间隔: " + formatTime(_0x3fe583) + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+    return _0x3fe583;
+  },
+  checkDailyReset = () => {
+    const _0x16ecda = new Date(),
+      _0xb797dc = moment(_0x16ecda).format("YYYY-MM-DD");
+    if (_0xb797dc !== state.currentDate) {
+      console.log("🔄 新的一天开始: " + _0xb797dc + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+      const _0x14772b = loadHistory(),
+        _0x339d39 = state.currentDate;
+      if (_0x339d39 && !_0x14772b.dailyStats[_0x339d39]) {
+        const _0x3f598b = {
+          successTimes: [],
+          requestCount: state.dailyRequests
+        };
+        _0x14772b.dailyStats[_0x339d39] = _0x3f598b;
+        saveHistory(_0x14772b);
+      }
+      state.dailyRequests = 0;
+      state.currentDate = _0xb797dc;
+      state.currentCouponId = getRandomCouponId();
+      state.currentCouponDesc = getCouponDescription(state.currentCouponId);
+      cleanupHistory();
+    }
+  },
+  cleanupHistory = () => {
+    const _0x1c9825 = loadHistory(),
+      _0x1157c7 = new Date(),
+      _0x2a223d = [];
+    for (let _0x4d65f3 = 0; _0x4d65f3 < HISTORY_DAYS; _0x4d65f3++) {
+      const _0x106ed8 = moment(_0x1157c7).subtract(_0x4d65f3, "days").format("YYYY-MM-DD");
+      _0x2a223d.push(_0x106ed8);
+    }
+    Object.keys(_0x1c9825.dailyStats).forEach(_0x56fbbb => {
+      !_0x2a223d.includes(_0x56fbbb) && delete _0x1c9825.dailyStats[_0x56fbbb];
+    });
+    _0x1c9825.successTimes = _0x1c9825.successTimes.filter(_0x504d08 => _0x2a223d.includes(_0x504d08.date));
+    saveHistory(_0x1c9825);
+    console.log("🧹 清理历史数据，保留最近" + HISTORY_DAYS + "天 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+  },
+  monitoringLoop = async () => {
+    while (true) {
+      checkDailyReset();
+      updateMonitoringState();
+      if (state.inKeyWindow && state.mode === "fixed") {
+        await executeDeceleratingRequest();
+      } else {
+        updateCouponId();
+        try {
+          const _0x24f6c2 = await safeRequest(),
+            _0x393f2d = processResult(_0x24f6c2);
+          !_0x393f2d && (state.status === "success" && sendNotification("✅ 兑换成功", state.message, "券: " + _0x24f6c2.couponDesc + "\n请求次数: " + state.dailyRequests), state.status = "monitoring", state.success = false, state.message = "");
+        } catch (_0x5c0b50) {
+          console.log("⚠️ 请求异常: " + _0x5c0b50.message + " | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+          state.lastError = _0x5c0b50.message;
+          sendNotification("⚠️ 请求异常", _0x5c0b50.message, "请查看日志\n券: " + state.currentCouponDesc + "\n请求次数: " + state.dailyRequests);
+        }
+        state.inKeyWindow ? state.currentInterval = generateRandomInterval(KEY_WINDOW_RANDOM_MIN, KEY_WINDOW_RANDOM_MAX) : state.currentInterval = generateRandomInterval(MIN_RANDOM_INTERVAL, MAX_RANDOM_INTERVAL);
+        await waitWithInterrupt(state.currentInterval);
+      }
+    }
+  },
+  init = async () => {
+    console.log("🚀 启动京东健康智能窗口监控");
+    cleanupHistory();
+    const _0x204b10 = new Date(),
+      _0x33aeee = moment(_0x204b10).format("YYYY-MM-DD");
+    state = {
+      dailyRequests: 0,
+      lastRequestTime: 0,
+      status: "monitoring",
+      inKeyWindow: isInKeyWindow(),
+      currentInterval: isInKeyWindow() ? INIT_INTERVAL : MIN_RANDOM_INTERVAL,
+      success: false,
+      message: "",
+      lastError: "",
+      intervalMultiplier: 1,
+      lastMinute: -1,
+      mode: "fixed",
+      windowStartTime: 0,
+      currentDate: _0x33aeee,
+      lastNotificationTime: 0,
+      lastStatusCheck: 0,
+      currentCouponId: getRandomCouponId(),
+      currentCouponDesc: getCouponDescription(state.currentCouponId)
+    };
+    console.log(state.inKeyWindow ? "🚀 初始关键窗口减速监控 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests : "🌿 初始常规监控 | 券: " + state.currentCouponDesc + " | 请求次数: " + state.dailyRequests);
+    sendNotification("🔐 Cookie验证", "验证通过", "开始监控兑换\n可用券数: " + COUPON_IDS.length + "\n当前券: " + state.currentCouponDesc);
+    await monitoringLoop();
+  };
+init();
