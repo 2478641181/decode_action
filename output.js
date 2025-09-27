@@ -1,4 +1,4 @@
-//Fri Sep 26 2025 13:47:02 GMT+0000 (Coordinated Universal Time)
+//Sat Sep 27 2025 13:29:54 GMT+0000 (Coordinated Universal Time)
 //Base:https://github.com/echo094/decode-js
 //Modify:https://github.com/smallfawn/decode_action
 const request = require("request"),
@@ -229,7 +229,7 @@ class KuaishouAdTask {
       this.did = _0x3d1a6e ? _0x3d1a6e[1] : "";
       this.userId = _0x529d83 ? _0x529d83[1] : "";
       this.kuaishouApiSt = _0x292d33 ? _0x292d33[1] : "";
-      this.appver = _0x444d06 ? _0x444d06[1] : "";
+      this.appver = _0x444d06 ? _0x444d06[1] : "13.7.20.10468";
       (!this.egid || !this.did) && console.log("账号[" + this.nickname + "] cookie格式可能无 egid 或 did，但继续尝试...");
     } catch (_0x5594a7) {
       console.log("账号[" + this.nickname + "] 解析cookie失败: " + _0x5594a7.message);
@@ -463,7 +463,7 @@ class KuaishouAdTask {
         "success": false,
         "reward": 0
       };
-      console.log("\u274C \u8D26\u53F7[" + this.nickname + "] " + _0x1b66ce.name + " 奖励失败，result=" + _0x466336.result + " msg=" + (_0x466336.errorMsg || ""));
+      console.log("\u274C \u8D26\u53F7[" + this.nickname + "] " + _0x1b66ce.name + " 奖励失败，result=" + _0x466336.result + " msg=" + (_0x466336.data || ""));
       if (isDevMode) {
         console.log("[调试] submitReport 原始响应:", JSON.stringify(_0x466336));
       }
