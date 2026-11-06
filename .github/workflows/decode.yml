@@ -17,6 +17,11 @@ jobs:
       run: |
         python src/decode.py
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
     - name: Install dependencies and run decode
       run: |
         npm install
